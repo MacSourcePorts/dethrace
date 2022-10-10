@@ -198,7 +198,12 @@ void Harness_Init(int* argc, char* argv[]) {
         OS_InstallSignalHandler(argv[0]);
     }
 
+    #ifdef __APPLE__
+    char* root_dir = GetPrefPath();
+    #else
     char* root_dir = getenv("DETHRACE_ROOT_DIR");
+    #endif
+
     if (root_dir == NULL) {
         LOG_INFO("DETHRACE_ROOT_DIR is not set, assuming '.'");
     } else {

@@ -13,4 +13,5 @@ int Input_IsKeyDown(unsigned char scan_code);
 void Input_GetMousePosition(int* pX, int* pY);
 void Input_GetMouseButtons(int* pButton1, int* pButton2);
 
+char* GetPrefPath();
 #endif

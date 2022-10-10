@@ -311,3 +311,7 @@ void Input_GetMouseButtons(int* pButton1, int* pButton2) {
     *pButton1 = state & SDL_BUTTON_LMASK;
     *pButton2 = state & SDL_BUTTON_RMASK;
 }
+
+char* GetPrefPath() {
+    return SDL_GetPrefPath(NULL, "dethrace");
+}
