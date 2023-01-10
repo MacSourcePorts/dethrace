@@ -453,7 +453,47 @@ void TotallyRepairACar(tCar_spec* pCar) {
     br_bounds storage_bounds;
     LOG_TRACE("(%p)", pCar);
 
-    STUB();
+    StopCarSmokingInstantly(pCar);
+    if (IsActionReplayAvailable()) {
+        PipeInstantUnSmudge(pCar);
+    }
+    pCar->repair_time += 100000;
+    for (i = 0; i < COUNT_OF(pCar->damage_units); i++) {
+        pCar->damage_units[i].damage_level = 0;
+        pCar->damage_units[i].last_level = 0;
+        pCar->damage_units[i].smoke_last_level = 0;
+    }
+    memcpy(&storage_bounds, &pCar->bounds[1], sizeof(br_bounds));
+    memcpy(&pCar->bounds[1], &pCar->max_bounds[1], sizeof(br_bounds));
+    if (TestForCarInSensiblePlace(pCar)) {
+        for (j = 0; j < pCar->car_actor_count; j++) {
+            the_car_actor = &pCar->car_model_actors[j];
+            if (the_car_actor->undamaged_vertices != NULL) {
+                pipe_vertex_count = 0;
+                for (k = 0; k < the_car_actor->actor->model->nvertices; k++) {
+                    if (pipe_vertex_count < COUNT_OF(pipe_array)) {
+                        BrVector3Sub(&pipe_array[pipe_vertex_count].delta_coordinates,
+                            &the_car_actor->undamaged_vertices[k].p, &the_car_actor->actor->model->vertices[k].p);
+                        if (!Vector3IsZero(&pipe_array[pipe_vertex_count].delta_coordinates)) {
+                            pipe_array[pipe_vertex_count].vertex_index = k;
+                            pipe_vertex_count++;
+                        }
+                    }
+                }
+                memcpy(the_car_actor->actor->model->vertices,
+                    the_car_actor->undamaged_vertices,
+                    the_car_actor->actor->model->nvertices * sizeof(br_vertex));
+                // FIXME: BrModelUpdate(..., BR_MODU_EDGES | BR_MODU_NORMALS) fails on TELL_ME_IF_WE_PASS_THIS_WAY
+//                BrModelUpdate(the_car_actor->actor->model, BR_MODU_EDGES | BR_MODU_NORMALS);
+                BrModelUpdate(the_car_actor->actor->model, BR_MODU_ALL);
+                if (pipe_vertex_count != 0 && IsActionReplayAvailable()) {
+                    PipeSingleModelGeometry(pCar->car_ID, j, pipe_vertex_count, pipe_array);
+                }
+            }
+        }
+    } else {
+        memcpy(&pCar->bounds[1], &storage_bounds, sizeof(br_bounds));
+    }
 }
 
 // IDA: void __cdecl TotallyRepairCar()
@@ -1227,8 +1267,8 @@ void DoWheelDamage(tU32 pFrame_period) {
 
     for (i = 0; i < gNum_active_cars; i++) {
         car = gActive_car_list[i];
-        for (j = 0; j < COUNT_OF(car->wheel_actors); j++) {
-            if (!car->wheel_actors[j]) {
+        for (j = 0; j < COUNT_OF(car->wheel_dam_offset); j++) {
+            if (car->wheel_actors[j] == NULL) {
                 continue;
             }
             old_offset = car->wheel_dam_offset[j];
@@ -1282,9 +1322,7 @@ void DoWheelDamage(tU32 pFrame_period) {
                 break;
             }
             if (gNet_mode == eNet_mode_none || car->driver == eDriver_local_human) {
-                temp_vector.v[0] = wheel_circum * gWheel_circ_to_width;
-                temp_vector.v[1] = 0.0f;
-                temp_vector.v[2] = 0.0f;
+                BrVector3Set(&temp_vector, wheel_circum * gWheel_circ_to_width, 0.f, 0.f);
                 BrMatrix34ApplyV(&wonky_vector, &temp_vector, &car->wheel_actors[j]->t.t.mat);
                 car->wheel_dam_offset[j] = fabsf(wonky_vector.v[1]);
             }

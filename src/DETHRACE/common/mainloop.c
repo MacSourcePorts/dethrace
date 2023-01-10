@@ -86,11 +86,11 @@ void CalculateFrameRate() {
     if (new_time != last_time) {
         new_rate = 10000u / (new_time - last_time);
         gFrame_rate = new_rate;
-        for (i = 0; i < 30; ++i) {
+        for (i = 0; i < COUNT_OF(last_rates); ++i) {
             gFrame_rate += last_rates[i];
         }
-        gFrame_rate /= 31;
-        for (i = 0; i < 29; i++) {
+        gFrame_rate /= COUNT_OF(last_rates) + 1;
+        for (i = 0; i < COUNT_OF(last_rates) - 1; i++) {
             last_rates[i] = last_rates[i + 1];
         }
         last_rates[29] = new_rate;
@@ -438,7 +438,7 @@ void CheckTimer() {
             RaceCompleted(eRace_over_out_of_time);
         }
 
-        if (harness_game_info.mode == eGame_carmageddon_demo || harness_game_info.mode == eGame_splatpack_demo) {
+        if (harness_game_info.mode == eGame_carmageddon_demo || harness_game_info.mode == eGame_splatpack_demo || harness_game_info.mode == eGame_splatpack_xmas_demo) {
             if (harness_game_config.demo_timeout != 0) {
                 time_left = harness_game_config.demo_timeout - GetRaceTime();
                 time_in_seconds = (time_left + 500) / 1000;
@@ -663,6 +663,10 @@ tRace_result MainGameLoop() {
     }
     if (gAction_replay_mode) {
         ToggleReplay();
+    }
+    // From splatpack x-mas demo
+    if (gArrow_mode) {
+        ToggleArrow();
     }
 
     if (gHost_abandon_game) {

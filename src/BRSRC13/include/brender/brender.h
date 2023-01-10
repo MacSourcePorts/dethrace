@@ -22,6 +22,9 @@ br_uint_32 BrActorEnum(br_actor* parent, br_actor_enum_cbfn* callback, void* arg
 br_bounds* BrActorToBounds(br_bounds* b, br_actor* ap);
 br_uint_16 BrActorToActorMatrix34(br_matrix34* m, br_actor* a, br_actor* b);
 
+void BrLightEnable(br_actor* l);
+void BrLightDisable(br_actor* l);
+
 // BrAllocator
 br_allocator* BrAllocatorSet(br_allocator* newal);
 
@@ -45,6 +48,7 @@ br_pixelmap* BrMapRemove(br_pixelmap* pixelmap);
 br_pixelmap* BrMapFind(char* pattern);
 br_uint_32 BrMapAddMany(br_pixelmap** items, int n);
 br_map_find_cbfn* BrMapFindHook(br_map_find_cbfn* hook);
+void BrMapUpdate(br_pixelmap* map, br_uint_16 flags);
 
 // BrMaterial
 br_material* BrMaterialAllocate(char* name);
@@ -63,6 +67,7 @@ br_material_find_cbfn* BrMaterialFindHook(br_material_find_cbfn* hook);
 void BrMatrix23Copy(br_matrix23* A, br_matrix23* B);
 void BrMatrix23Identity(br_matrix23* mat);
 void BrMatrix23Mul(br_matrix23* A, br_matrix23* B, br_matrix23* C);
+void BrMatrix23PostScale(br_matrix23* mat, br_scalar sx, br_scalar sy);
 
 // BrMatrix34
 void BrMatrix34Identity(br_matrix34* mat);

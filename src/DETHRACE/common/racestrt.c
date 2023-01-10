@@ -784,20 +784,20 @@ void DrawPartsText() {
 
     CalcPartPrice(gPart_category, gPart_index, &price, &cost);
     TransBrPixelmapText(gBack_screen, gCurrent_graf_data->parts_cost_x, gCurrent_graf_data->parts_cost_y, 5, gFont_7, GetMiscString(28));
-    BrPixelmapTextF(gBack_screen, gCurrent_graf_data->parts_numbers_x, gCurrent_graf_data->parts_cost_y - (TranslationMode() ? 0 : 2), 5, gFont_7, "%d", price);
+    BrPixelmapTextF(gBack_screen, gCurrent_graf_data->parts_numbers_x, gCurrent_graf_data->parts_cost_y - (TranslationMode() ? 2 : 0), 5, gFont_7, "%d", price);
     if (cost > 0) {
         TransBrPixelmapText(gBack_screen, gCurrent_graf_data->parts_net_x, gCurrent_graf_data->parts_net_y, 45, gFont_7, GetMiscString(29));
-        BrPixelmapTextF(gBack_screen, gCurrent_graf_data->parts_numbers_x, gCurrent_graf_data->parts_net_y - (TranslationMode() ? 0 : 2), 45, gFont_7, "%d", cost);
+        BrPixelmapTextF(gBack_screen, gCurrent_graf_data->parts_numbers_x, gCurrent_graf_data->parts_net_y - (TranslationMode() ? 2 : 0), 45, gFont_7, "%d", cost);
     } else if (cost < 0) {
         TransBrPixelmapText(gBack_screen, gCurrent_graf_data->parts_net_x, gCurrent_graf_data->parts_net_y, 201, gFont_7, GetMiscString(30));
-        BrPixelmapTextF(gBack_screen, gCurrent_graf_data->parts_numbers_x, gCurrent_graf_data->parts_net_y - (TranslationMode() ? 0 : 2), 201, gFont_7, "%d", -cost);
+        BrPixelmapTextF(gBack_screen, gCurrent_graf_data->parts_numbers_x, gCurrent_graf_data->parts_net_y - (TranslationMode() ? 2 : 0), 201, gFont_7, "%d", -cost);
     } else if (gJust_bought_part) {
         TransBrPixelmapText(gBack_screen, gCurrent_graf_data->parts_net_x, gCurrent_graf_data->parts_net_y, 134, gFont_7, GetMiscString(33));
     } else {
         TransBrPixelmapText(gBack_screen, gCurrent_graf_data->parts_net_x, gCurrent_graf_data->parts_net_y, 134, gFont_7, GetMiscString(32));
     }
     TransBrPixelmapText(gBack_screen, gCurrent_graf_data->parts_total_x, gCurrent_graf_data->parts_total_y, 2, gFont_7, GetMiscString(31));
-    BrPixelmapTextF(gBack_screen, gCurrent_graf_data->parts_numbers_x, gCurrent_graf_data->parts_total_y - (TranslationMode() ? 0 : 2), 2, gFont_7, "%d", gProgram_state.credits);
+    BrPixelmapTextF(gBack_screen, gCurrent_graf_data->parts_numbers_x, gCurrent_graf_data->parts_total_y - (TranslationMode() ? 2 : 0), 2, gFont_7, "%d", gProgram_state.credits);
 }
 
 // IDA: void __cdecl SetPartsImage()
@@ -1282,11 +1282,18 @@ int TryToMoveToArrows(int* pCurrent_choice, int* pCurrent_mode) {
 int UpOpponent(int* pCurrent_choice, int* pCurrent_mode) {
     LOG_TRACE("(%p, %p)", pCurrent_choice, pCurrent_mode);
 
+#if defined(DETHRACE_FIX_BUGS)
+    // fixes bug where racers could be scrolled in other race menu modes
+    if (gProgram_state.view_type != eVT_Opponents) {
+        return 0;
+    }
+#endif
     AddToFlicQueue(gStart_interface_spec->pushed_flics[5].flic_index,
         gStart_interface_spec->pushed_flics[5].x[gGraf_data_index],
         gStart_interface_spec->pushed_flics[5].y[gGraf_data_index],
         1);
     DRS3StartSound(gEffects_outlet, 3000);
+    RemoveTransientBitmaps(1);
     DropOutImageThruBottom(GetPanelPixelmap(0),
         gCurrent_graf_data->start_race_panel_left,
         gCurrent_graf_data->start_race_panel_top,
@@ -1309,11 +1316,18 @@ int UpOpponent(int* pCurrent_choice, int* pCurrent_mode) {
 int DownOpponent(int* pCurrent_choice, int* pCurrent_mode) {
     LOG_TRACE("(%p, %p)", pCurrent_choice, pCurrent_mode);
 
+#if defined(DETHRACE_FIX_BUGS)
+    // fixes bug where racers could be scrolled in other race menu modes
+    if (gProgram_state.view_type != eVT_Opponents) {
+        return 0;
+    }
+#endif
     AddToFlicQueue(gStart_interface_spec->pushed_flics[6].flic_index,
         gStart_interface_spec->pushed_flics[6].x[gGraf_data_index],
         gStart_interface_spec->pushed_flics[6].y[gGraf_data_index],
         1);
     DRS3StartSound(gEffects_outlet, 3000);
+    RemoveTransientBitmaps(1);
     DropOutImageThruTop(GetPanelPixelmap(0),
         gCurrent_graf_data->start_race_panel_left,
         gCurrent_graf_data->start_race_panel_top,
@@ -1428,10 +1442,10 @@ void SelectRaceDraw(int pCurrent_choice, int pCurrent_mode) {
     static tU32 test2;
     LOG_TRACE8("(%d, %d)", pCurrent_choice, pCurrent_mode);
 
-    if (gProgram_state.view_type == 2) {
+    if (gProgram_state.view_type == eVT_Opponents) {
         the_opponent = &gOpponents[gCurrent_race.opponent_list[gOpponent_index].index];
-        the_chunk = the_opponent->text_chunks;
         for (j = 0; j < the_opponent->text_chunk_count; j++) {
+            the_chunk = &the_opponent->text_chunks[j];
             if (GetPanelFlicFrameIndex(0) >= the_chunk->frame_cue && GetPanelFlicFrameIndex(0) < the_chunk->frame_end) {
                 y_coord = the_chunk->y_coord * gGraf_specs[gGraf_spec_index].total_height / 200
                     + gCurrent_graf_data->start_race_panel_top;
@@ -1441,46 +1455,44 @@ void SelectRaceDraw(int pCurrent_choice, int pCurrent_mode) {
                         the_chunk->x_coord * gGraf_specs[gGraf_spec_index].total_width / 320
                             + gCurrent_graf_data->start_race_panel_left,
                         y_coord,
-                        0xC9u,
-                        gFont_7,
-                        the_chunk->text[j]);
-                    y_coord += gFont_7->glyph_y + gFont_7->glyph_y / 2;
-                }
-            }
-            ++the_chunk;
-        }
-    } else if (gProgram_state.view_type == 1) {
-        the_chunk = gCurrent_race.text_chunks;
-        for (j = 0; j < gCurrent_race.text_chunk_count; j++) {
-            if (GetPanelFlicFrameIndex(0) >= the_chunk->frame_cue && GetPanelFlicFrameIndex(0) < the_chunk->frame_end) {
-                y_coord = the_chunk->y_coord * gGraf_specs[gGraf_spec_index].total_height / 200
-                    + gCurrent_graf_data->start_race_panel_top;
-                for (k = 0; k < the_chunk->line_count; k++) {
-                    TransBrPixelmapText(
-                        gBack_screen,
-                        the_chunk->x_coord * gGraf_specs[gGraf_spec_index].total_width / 320
-                            + gCurrent_graf_data->start_race_panel_left,
-                        y_coord,
-                        0xC9u,
+                        201,
                         gFont_7,
                         the_chunk->text[k]);
                     y_coord += gFont_7->glyph_y + gFont_7->glyph_y / 2;
                 }
             }
-            ++the_chunk;
+        }
+    } else if (gProgram_state.view_type == eVT_Info) {
+        for (j = 0; j < gCurrent_race.text_chunk_count; j++) {
+            the_chunk = &gCurrent_race.text_chunks[j];
+            if (GetPanelFlicFrameIndex(0) >= the_chunk->frame_cue && GetPanelFlicFrameIndex(0) < the_chunk->frame_end) {
+                y_coord = the_chunk->y_coord * gGraf_specs[gGraf_spec_index].total_height / 200
+                    + gCurrent_graf_data->start_race_panel_top;
+                for (k = 0; k < the_chunk->line_count; k++) {
+                    TransBrPixelmapText(
+                        gBack_screen,
+                        the_chunk->x_coord * gGraf_specs[gGraf_spec_index].total_width / 320
+                            + gCurrent_graf_data->start_race_panel_left,
+                        y_coord,
+                        201,
+                        gFont_7,
+                        the_chunk->text[k]);
+                    y_coord += gFont_7->glyph_y + gFont_7->glyph_y / 2;
+                }
+            }
         }
     }
     test = KevKeyService();
     if (*test) {
         test2 = *test;
     }
-    if (*test == 0x27645433 && test[1] == 0x758F0015) {
+    if (test[0] == 0x27645433 && test[1] == 0x758f0015) {
         // cheat code: "KEVWOZEAR"
         gProgram_state.game_completed = 1;
         DRS3StartSound(gEffects_outlet, 3202);
         DRS3StartSound(gEffects_outlet, 3202);
     }
-    if (*test == 0x33F75455 && test[1] == 0xC10AAAF2) {
+    if (test[0] == 0x33f75455 && test[1] == 0xC10AAAF2) {
         // cheat code: "IWANTTOFIDDLE"
 
         char s[128];
@@ -1494,7 +1506,7 @@ void SelectRaceDraw(int pCurrent_choice, int pCurrent_mode) {
         PathCat(s, s, "PROG.ACT");
         PDFileUnlock(s);
         f = fopen(s, "wb");
-        if (f) {
+        if (f != NULL) {
             DRS3StartSound(gEffects_outlet, 9000);
             if (gDecode_thing) {
                 for (i = 0; i < strlen(gDecode_string); i++) {
@@ -1674,7 +1686,7 @@ tSO_result DoSelectRace(int* pSecond_time_around) {
             DisposeFlicPanel(0);
 
             if (result == 2) {
-                if (harness_game_info.mode == eGame_carmageddon_demo || harness_game_info.mode == eGame_splatpack_demo) {
+                if (harness_game_info.mode == eGame_carmageddon_demo || harness_game_info.mode == eGame_splatpack_demo || harness_game_info.mode == eGame_splatpack_xmas_demo) {
                     DoFeatureUnavailableInDemo();
                 } else {
                     RunFlic(192);
@@ -1820,16 +1832,14 @@ void DrawGrid(int pOffset, int pDraw_it) {
                     45);
             }
         }
-        if (gCurrent_race.opponent_list[i].index >= 0) {
-            if (gCurrent_race.opponent_list[i].ranking >= gProgram_state.rank) {
-                if (str_index >= 2) {
-                    str_index = 3;
-                } else {
-                    str_index = 1;
-                }
-            }
-        } else {
+        if (gCurrent_race.opponent_list[i].index < 0) {
             str_index = 2;
+        } else if (gProgram_state.rank <= gCurrent_race.opponent_list[i].ranking) {
+            if (str_index >= 2) {
+                str_index = 3;
+            } else {
+                str_index = 1;
+            }
         }
         if (gCurrent_race.opponent_list[i].index >= 0) {
             if (gOpponents[gCurrent_race.opponent_list[i].index].car_number <= 0
@@ -1844,7 +1854,7 @@ void DrawGrid(int pOffset, int pDraw_it) {
                     gOpponents[gCurrent_race.opponent_list[i].index].car_number);
             }
         } else {
-            if (gProgram_state.frank_or_anniness) {
+            if (gProgram_state.frank_or_anniness == eAnnie) {
                 sprintf(&numbers_str[str_index][strlen(numbers_str[str_index])], "%c ", '<');
             } else {
                 sprintf(&numbers_str[str_index][strlen(numbers_str[str_index])], "%c ", ';');
@@ -1863,12 +1873,12 @@ void DrawGrid(int pOffset, int pDraw_it) {
     }
     if (gDraw_grid_status == eGrid_draw_all) {
         if (strlen(numbers_str[3])) {
-            numbers_str[2][strlen(numbers_str[3]) + 99] = 0;
+            numbers_str[3][strlen(numbers_str[3]) - 1] = '\0';
         } else {
-            numbers_str[1][strlen(numbers_str[2]) + 99] = 0;
+            numbers_str[2][strlen(numbers_str[2]) - 1] = '\0';
         }
-        strcpy(total_str, (const char*)numbers_str);
-        for (i = 1; i <= 3; i++) {
+        strcpy(total_str, numbers_str[0]);
+        for (i = 1; i < COUNT_OF(numbers_str); i++) {
             strcat(total_str, numbers_str[i]);
         }
         str_x = (gCurrent_graf_data->grid_numbers_left + gCurrent_graf_data->grid_numbers_right) / 2
@@ -1896,7 +1906,7 @@ void DrawGrid(int pOffset, int pDraw_it) {
         for (i = gCurrent_race.number_of_racers - 1; i > 0; i--) {
             for (j = strlen(total_str) - 2; j >= 0; j--) {
                 if (total_str[j] == ' ') {
-                    total_str[j + 1] = 0;
+                    total_str[j + 1] = '\0';
                     break;
                 }
             }
@@ -2027,8 +2037,8 @@ void ChallengeStart() {
     TransBrPixelmapText(the_map, 0, 0, 1u, gBig_font, gOpponents[gChallenger_index__racestrt].abbrev_name);
     PathCat(the_path, gApplication_path, "DARES.TXT");
     f = DRfopen(the_path, "rt");
-    if (!f) {
-        FatalError(100);
+    if (f == NULL) {
+        FatalError(kFatalError_OpenDareTxt);
     }
 
     dare_index = IRandomBetween(0, GetAnInt(f) - 1);

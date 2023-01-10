@@ -12,6 +12,7 @@
 #include "globvars.h"
 #include "globvrpb.h"
 #include "grafdata.h"
+#include "harness/hooks.h"
 #include "harness/os.h"
 #include "harness/trace.h"
 #include "init.h"
@@ -541,12 +542,12 @@ void SetBRenderScreenAndBuffers(int pX_offset, int pY_offset, int pWidth, int pH
 
     gScreen->origin_x = 0;
     gScreen->origin_y = 0;
-    if (!gBack_screen) {
-        FatalError(1);
+    if (gBack_screen == NULL) {
+        FatalError(kFatalError_AllocateOffScreenBuffer);
     }
     gDepth_buffer = BrPixelmapMatch(gBack_screen, BR_PMMATCH_DEPTH_16);
     if (gDepth_buffer == NULL) {
-        FatalError(2);
+        FatalError(kFatalError_AllocateZBuffer);
     }
     BrZbBegin(gRender_screen->type, gDepth_buffer->type);
     gBrZb_initialized = 1;
@@ -585,13 +586,11 @@ void AdjustRenderScreenSize() {
         gRender_screen->base_y = gProgram_state.current_render_top;
         gRender_screen->height = gProgram_state.current_render_bottom - gProgram_state.current_render_top;
         gRender_screen->width = gProgram_state.current_render_right - gProgram_state.current_render_left;
-        LOG_DEBUG("renderscreen is %d %d, %d x %d", gRender_screen->base_x, gRender_screen->base_y, gRender_screen->width, gRender_screen->height);
     }
     if (gRender_screen->row_bytes == gRender_screen->width) {
         gRender_screen->flags |= BR_PMF_ROW_WHOLEPIXELS;
     } else {
         gRender_screen->flags &= ~BR_PMF_ROW_WHOLEPIXELS;
-        // TELL_ME_IF_WE_PASS_THIS_WAY();
     }
     gRender_screen->origin_x = gRender_screen->width / 2;
     gRender_screen->origin_y = gRender_screen->height / 2;
@@ -689,14 +688,14 @@ void InitializePalettes() {
     gCurrent_palette = DRPixelmapAllocate(BR_PMT_RGBX_888, 1u, 256, gCurrent_palette_pixels, 0);
     gRender_palette = BrTableFind("DRRENDER.PAL");
     if (gRender_palette == NULL) {
-        FatalError(10);
+        FatalError(kFatalError_RequiredPalette);
     }
     gOrig_render_palette = BrPixelmapAllocateSub(gRender_palette, 0, 0, gRender_palette->width, gRender_palette->height);
     gOrig_render_palette->pixels = BrMemAllocate(0x400u, kMem_render_pal_pixels);
     memcpy(gOrig_render_palette->pixels, gRender_palette->pixels, 0x400u);
     gFlic_palette = BrTableFind("DRACEFLC.PAL");
     if (gFlic_palette == NULL) {
-        FatalError(10);
+        FatalError(kFatalError_RequiredPalette);
     }
     DRSetPalette(gFlic_palette);
     gScratch_pixels = BrMemAllocate(0x400u, kMem_scratch_pal_pixels);
@@ -772,13 +771,16 @@ void NewScreenWobble(double pAmplitude_x, double pAmplitude_y, double pPeriod) {
 // IDA: void __usercall SetScreenWobble(int pWobble_x@<EAX>, int pWobble_y@<EDX>)
 void SetScreenWobble(int pWobble_x, int pWobble_y) {
     LOG_TRACE("(%d, %d)", pWobble_x, pWobble_y);
-    NOT_IMPLEMENTED();
+
+    gScreen_wobble_y = pWobble_y;
+    gScreen_wobble_x = pWobble_x;
 }
 
 // IDA: void __cdecl ResetScreenWobble()
 void ResetScreenWobble() {
     LOG_TRACE("()");
-    NOT_IMPLEMENTED();
+
+    SetScreenWobble(0, 0);
 }
 
 // IDA: void __usercall CalculateWobblitude(tU32 pThe_time@<EAX>)
@@ -973,16 +975,12 @@ void MungeClipPlane(br_vector3* pLight, tCar_spec* pCar, br_vector3* p1, br_vect
 
     BrMatrix34ApplyP(&v1, p1, &pCar->car_master_actor->t.t.mat);
     BrMatrix34ApplyP(&v2, p2, &pCar->car_master_actor->t.t.mat);
-    v3.v[0] = p2->v[0] - p1->v[0];
-    v3.v[1] = p2->v[1] - p1->v[1];
-    v3.v[2] = p2->v[2] - p1->v[2];
-    v4.v[0] = pLight->v[2] * v3.v[1] - pLight->v[1] * v3.v[2];
-    v4.v[1] = pLight->v[0] * v3.v[2] - pLight->v[2] * v3.v[0];
-    v4.v[2] = pLight->v[1] * v3.v[0] - v3.v[1] * pLight->v[0];
-    if (fabs(v4.v[0]) >= 0.01 || fabs(v4.v[1]) >= 0.01 || fabs(v4.v[2]) >= 0.01) {
-        v3 = *p1;
-        v3.v[1] = v3.v[1] - pY_offset;
-        if (v3.v[1] * v4.v[1] + v4.v[2] * v3.v[2] + v4.v[0] * v3.v[0] > 0.0) {
+    BrVector3Sub(&v3, p2, p1);
+    BrVector3Cross(&v4, &v3, pLight);
+    if (fabsf(v4.v[0]) >= 0.01f || fabsf(v4.v[1]) >= 0.01f || fabsf(v4.v[2]) >= 0.01f) {
+        BrVector3Copy(&v3, p1);
+        v3.v[1] -= pY_offset;
+        if (BrVector3Dot(&v3, &v4) > 0.f) {
             BrVector3Negate(&v4, &v4);
         }
         BrVector3Normalise(&v3, &v4);
@@ -993,7 +991,7 @@ void MungeClipPlane(br_vector3* pLight, tCar_spec* pCar, br_vector3* p1, br_vect
         ((br_vector4*)new_clip->type_data)->v[0] = v4.v[0];
         ((br_vector4*)new_clip->type_data)->v[1] = v4.v[1];
         ((br_vector4*)new_clip->type_data)->v[2] = v4.v[2];
-        ((br_vector4*)new_clip->type_data)->v[3] = -(v4.v[1] * v1.v[1] + v4.v[2] * v1.v[2] + v1.v[0] * v4.v[0]);
+        ((br_vector4*)new_clip->type_data)->v[3] = -BrVector3Dot(&v1, &v4);
         gShadow_clip_planes[gShadow_clip_plane_count].length = length;
         gShadow_clip_plane_count++;
     }
@@ -1506,7 +1504,6 @@ void RenderAFrame(int pDepth_mask_on) {
         gBack_screen->base_y = 0;
         if (gCurrent_race.map_image != NULL) {
             if (gReal_graf_data_index) {
-                LOG_DEBUG("DOUBLING");
                 BrPixelmapRectangleFill(gBack_screen, 0, 0, 640, 40, 0);
                 BrPixelmapRectangleFill(gBack_screen, 0, 440, 640, 40, 0);
                 DRPixelmapDoubledCopy(
@@ -1619,6 +1616,7 @@ void RenderAFrame(int pDepth_mask_on) {
             ProcessTrack(gUniverse_actor, &gProgram_state.track_spec, gCamera, &gCamera_to_world, 1);
         }
         RenderSplashes();
+	Harness_Hook_FlushRenderer(); /* Dethrace. Flush buffers into memory. */
         RenderSmoke(gRender_screen, gDepth_buffer, gCamera, &gCamera_to_world, gFrame_period);
         RenderSparks(gRender_screen, gDepth_buffer, gCamera, &gCamera_to_world, gFrame_period);
         RenderProximityRays(gRender_screen, gDepth_buffer, gCamera, &gCamera_to_world, gFrame_period);
@@ -1689,7 +1687,7 @@ void RenderAFrame(int pDepth_mask_on) {
         } else {
             FlashyMapCheckpoint(gCheckpoint - 1, the_time);
         }
-        if (gShow_peds_on_map || (gNet_mode && gCurrent_net_game->options.show_powerups_on_map)) {
+        if (gShow_peds_on_map || (gNet_mode != eNet_mode_none && gCurrent_net_game->options.show_powerups_on_map)) {
             for (i = 0; i < GetPedCount(); i++) {
                 ped_type = GetPedPosition(i, &pos);
                 if (ped_type > 0 && gShow_peds_on_map) {
@@ -1791,7 +1789,7 @@ void RenderAFrame(int pDepth_mask_on) {
         PipeFrameFinish();
     }
     gRender_screen->pixels = old_pixels;
-    if (!gPalette_fade_time || GetRaceTime() > (gPalette_fade_time + 500)) {
+    if (!gPalette_fade_time || GetRaceTime() > gPalette_fade_time + 500) {
         PDScreenBufferSwap(0);
     }
     if (gAction_replay_mode) {
@@ -2099,7 +2097,15 @@ void DRPixelmapRectangleMaskedCopy(br_pixelmap* pDest, br_int_16 pDest_x, br_int
 // IDA: void __usercall DRMaskedStamp(br_int_16 pDest_x@<EAX>, br_int_16 pDest_y@<EDX>, br_pixelmap *pSource@<EBX>)
 void DRMaskedStamp(br_int_16 pDest_x, br_int_16 pDest_y, br_pixelmap* pSource) {
     LOG_TRACE("(%d, %d, %p)", pDest_x, pDest_y, pSource);
-    NOT_IMPLEMENTED();
+
+    DRPixelmapRectangleMaskedCopy(gBack_screen,
+        pDest_x,
+        pDest_y,
+        pSource,
+        0,
+        0,
+        pSource->width,
+        pSource->height);
 }
 
 // IDA: void __usercall DRPixelmapRectangleOnscreenCopy(br_pixelmap *pDest@<EAX>, br_int_16 pDest_x@<EDX>, br_int_16 pDest_y@<EBX>, br_pixelmap *pSource@<ECX>, br_int_16 pSource_x, br_int_16 pSource_y, br_int_16 pWidth, br_int_16 pHeight)
@@ -2144,6 +2150,7 @@ void DRPixelmapRectangleShearedCopy(br_pixelmap* pDest, br_int_16 pDest_x, br_in
     int last_shear_x;
     int current_shear_x;
     int shear_x_difference;
+    int pWidth_orig;
     tU8 the_byte;
     tU8* source_ptr;
     tU8* dest_ptr;
@@ -2182,13 +2189,27 @@ void DRPixelmapRectangleShearedCopy(br_pixelmap* pDest, br_int_16 pDest_x, br_in
             pDest_x = 0;
         }
         if (pDest->width > pDest_x) {
-            if (pDest_x + pWidth > pDest->width) {
-                shear_x_difference = pDest_x + pWidth - pDest->width;
-                pWidth = pDest->width - pDest_x;
-                source_row_wrap += shear_x_difference;
-                dest_row_wrap += shear_x_difference;
-            }
+            pWidth_orig = pWidth;
             for (y_count = 0; pHeight > y_count; ++y_count) {
+#if !defined(DETHRACE_FIX_BUGS)
+                /*
+                 * The OG compares against pWidth instead of pWidth_orig, which
+                 * ends up clipped to the dest pixelmap width. This effectively
+                 * clips the consecutive rows of pixels along the shear, leaving
+                 * a visible gap on the screen. Instead, when comparing against
+                 * pWidth_orig, the clip takes place vertically along the dest
+                 * pixelmap edge, allowing all pixels to be displayed.
+                 *
+                 * Simulate OG behavior by overwriting pWidth_orig with pWidth.
+                 */
+                pWidth_orig = pWidth;
+#endif
+                if (pDest_x + pWidth_orig > pDest->width) {
+                    shear_x_difference = pDest_x + pWidth - pDest->width;
+                    pWidth = pDest->width - pDest_x;
+                    source_row_wrap += shear_x_difference;
+                    dest_row_wrap += shear_x_difference;
+                }
                 for (x_count = 0; pWidth > x_count; ++x_count) {
                     the_byte = *source_ptr++;
                     if (the_byte) {
@@ -2212,12 +2233,6 @@ void DRPixelmapRectangleShearedCopy(br_pixelmap* pDest, br_int_16 pDest_x, br_in
                 }
                 if (pDest->width <= pDest_x) {
                     break;
-                }
-                if (pDest_x + pWidth > pDest->width) {
-                    shear_x_difference = pDest_x + pWidth - pDest->width;
-                    pWidth = pDest->width - pDest_x;
-                    source_row_wrap += shear_x_difference;
-                    dest_row_wrap += shear_x_difference;
                 }
             }
         }
@@ -2291,7 +2306,7 @@ int AllocateTransientBitmap(int pWidth, int pHeight, int pUser_data) {
             return bm_index;
         }
     }
-    FatalError(18);
+    FatalError(kFatalError_FindSpareTransientBitmap);
 }
 
 // IDA: void __usercall DeallocateTransientBitmap(int pIndex@<EAX>)
@@ -2635,14 +2650,14 @@ void LoadFont(int pFont_ID) {
     gFonts[pFont_ID].images = DRPixelmapLoad(the_path);
 
     if (gFonts[pFont_ID].images == NULL) {
-        FatalError(20, gFont_names[pFont_ID]);
+        FatalError(kFatalError_LoadFontImage_S, gFont_names[pFont_ID]);
     }
     if (!gFonts[pFont_ID].file_read_once) {
         strcpy(&the_path[number_of_chars + 1], "TXT");
 
         f = DRfopen(the_path, "rt");
         if (f == NULL) {
-            FatalError(21, gFont_names[pFont_ID]);
+            FatalError(kFatalError_LoadFontWidthTable_S, gFont_names[pFont_ID]);
         }
 
         gFonts[pFont_ID].height = GetAnInt(f);

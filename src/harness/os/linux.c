@@ -23,21 +23,23 @@
 #include <time.h>
 #include <unistd.h>
 
+#define ARRAY_SIZE(A) (sizeof(A) / sizeof(A[0]))
+
 static int stack_nbr = 0;
 static char _program_name[1024];
 #define MAX_STACK_FRAMES 64
 static void* stack_traces[MAX_STACK_FRAMES];
 #define TRACER_PID_STRING "TracerPid:"
 DIR* directory_iterator;
+uint32_t first_clock_time = 0;
 
 struct dl_iterate_callback_data {
     int initialized;
     intptr_t start;
 } dethrace_dl_data;
 
-static int dl_iterate_callback(struct dl_phdr_info *info, size_t size, void *data)
-{
-    struct dl_iterate_callback_data *callback_data = data;
+static int dl_iterate_callback(struct dl_phdr_info* info, size_t size, void* data) {
+    struct dl_iterate_callback_data* callback_data = data;
 
     if (strcmp(info->dlpi_name, "") == 0) {
         callback_data->start = info->dlpi_addr;
@@ -56,7 +58,10 @@ static intptr_t get_dethrace_offset() {
 uint32_t OS_GetTime() {
     struct timespec spec;
     clock_gettime(CLOCK_MONOTONIC, &spec);
-    return spec.tv_sec * 1000 + spec.tv_nsec / 1000000;
+    if (first_clock_time == 0) {
+        first_clock_time = spec.tv_sec * 1000 + spec.tv_nsec / 1000000;
+    }
+    return (spec.tv_sec * 1000 + spec.tv_nsec / 1000000) - first_clock_time;
 }
 
 void OS_Sleep(int delay_ms) {
@@ -327,8 +332,38 @@ FILE* OS_fopen(const char* pathname, const char* mode) {
         if (strcasecmp(pBaseName, pDirent->d_name) == 0) {
             strcat(pDirName, "/");
             strcat(pDirName, pDirent->d_name);
-            return fopen(pDirName, mode);
+            f = fopen(pDirName, mode);
+            break;
         }
     }
-    return NULL;
+    closedir(pDir);
+    return f;
+}
+
+void OS_AllocateActionReplayBuffer(char** pBuffer, unsigned* pBuffer_size) {
+    static int allocated = 0;
+    static char* buffer = NULL;
+    static unsigned buffer_size = 0;
+    unsigned i;
+    const int wanted_sizes[] = {
+        20000000,
+        16000000,
+        6000000,
+        4000000,
+        500000,
+    };
+
+    if (!allocated) {
+        allocated = 1;
+        buffer_size = 0;
+        for (i = 0; i < ARRAY_SIZE(wanted_sizes); i++) {
+            buffer = malloc(wanted_sizes[i]);
+            if (buffer != NULL) {
+                buffer_size = wanted_sizes[i];
+                break;
+            }
+        }
+    }
+    *pBuffer = buffer;
+    *pBuffer_size = buffer_size;
 }

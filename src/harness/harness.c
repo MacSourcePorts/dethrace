@@ -90,19 +90,19 @@ void Harness_DetectGameMode() {
             harness_game_info.defines.INTRO_SMK_FILE = "SPLINTRO.SMK";
             harness_game_info.defines.GERMAN_LOADSCRN = "LOADSCRN.PIX";
             harness_game_info.mode = eGame_splatpack;
-            LOG_INFO("\"%s\"", "Splat Pack");
+            printf("Game mode: Splat Pack\n");
         } else if (access("DATA/RACES/TINSEL.TXT", F_OK) != -1) {
             // Only the the splat x-mas demo has the tinsel track
-            harness_game_info.defines.INTRO_SMK_FILE = "";
+            harness_game_info.defines.INTRO_SMK_FILE = "MIX_INTR.SMK";
             harness_game_info.defines.GERMAN_LOADSCRN = "";
-            harness_game_info.mode = eGame_splatpack_demo;
-            LOG_INFO("\"%s\"", "Splat Pack X-mas demo");
+            harness_game_info.mode = eGame_splatpack_xmas_demo;
+            printf("Game mode: Splat Pack X-mas demo\n");
         } else {
             // Assume we're using the splatpack demo
-            harness_game_info.defines.INTRO_SMK_FILE = "";
+            harness_game_info.defines.INTRO_SMK_FILE = "MIX_INTR.SMK";
             harness_game_info.defines.GERMAN_LOADSCRN = "";
             harness_game_info.mode = eGame_splatpack_demo;
-            LOG_INFO("\"%s\"", "Splat Pack demo");
+            printf("Game mode: Splat Pack demo\n");
         }
     } else if (access("DATA/RACES/CITYB3.TXT", F_OK) != -1) {
         // All non-splatpack edition have the cityb3 track
@@ -111,7 +111,7 @@ void Harness_DetectGameMode() {
             harness_game_info.defines.INTRO_SMK_FILE = "";
             harness_game_info.defines.GERMAN_LOADSCRN = "COWLESS.PIX";
             harness_game_info.mode = eGame_carmageddon_demo;
-            LOG_INFO("\"%s\"", "Carmageddon demo");
+            printf("Game mode: Carmageddon demo\n");
         } else {
             goto carmageddon;
         }
@@ -124,7 +124,7 @@ void Harness_DetectGameMode() {
         }
         harness_game_info.defines.GERMAN_LOADSCRN = "LOADSCRN.PIX";
         harness_game_info.mode = eGame_carmageddon;
-        LOG_INFO("\"%s\"", "Carmageddon");
+        printf("Game mode: Carmageddon\n");
     }
 
     harness_game_info.localization = eGameLocalization_none;
@@ -165,6 +165,7 @@ void Harness_DetectGameMode() {
         harness_game_info.defines.ascii_shift_table = demo_ascii_shift_table;
         break;
     case eGame_splatpack_demo:
+    case eGame_splatpack_xmas_demo:
         harness_game_info.defines.ascii_table = splatpack_xmasdemo_ascii_table;
         harness_game_info.defines.ascii_shift_table = splatpack_xmasdemo_ascii_shift_table;
         break;
@@ -176,10 +177,10 @@ void Harness_DetectGameMode() {
 void Harness_Init(int* argc, char* argv[]) {
     int result;
 
-    LOG_INFO("version: " DETHRACE_VERSION);
+    printf("Dethrace version: %s\n", DETHRACE_VERSION);
 
     // disable the original CD check code
-    harness_game_config.disable_cd_check = 1;
+    harness_game_config.enable_cd_check = 0;
     // original physics time step. Lower values seem to work better at 30+ fps
     harness_game_config.physics_step_time = 40;
     // do not limit fps by default
@@ -188,6 +189,14 @@ void Harness_Init(int* argc, char* argv[]) {
     harness_game_config.freeze_timer = 0;
     // default demo time out is 240s
     harness_game_config.demo_timeout = 240000;
+    // disable developer diagnostics by default
+    harness_game_config.enable_diagnostics = 0;
+    // no volume multiplier
+    harness_game_config.volume_multiplier = 1.0f;
+    // start window in windowed mode
+    harness_game_config.start_full_screen = 0;
+    // disable replay by default
+    harness_game_config.enable_replay = 0;
 
     // install signal handler by default
     harness_game_config.install_signalhandler = 1;
@@ -207,7 +216,7 @@ void Harness_Init(int* argc, char* argv[]) {
     if (root_dir == NULL) {
         LOG_INFO("DETHRACE_ROOT_DIR is not set, assuming '.'");
     } else {
-        printf("DETHRACE_ROOT_DIR: %s\n", root_dir);
+        printf("Data directory: %s\n", root_dir);
         result = chdir(root_dir);
         if (result != 0) {
             LOG_PANIC("Failed to chdir. Error is %s", strerror(errno));
@@ -238,7 +247,7 @@ int Harness_ProcessCommandLine(int* argc, char* argv[]) {
         int handled = 0;
 
         if (strcasecmp(argv[i], "--cdcheck") == 0) {
-            harness_game_config.disable_cd_check = 0;
+            harness_game_config.enable_cd_check = 1;
             handled = 1;
         } else if (strstr(argv[i], "--debug=") != NULL) {
             char* s = strstr(argv[i], "=");
@@ -271,6 +280,20 @@ int Harness_ProcessCommandLine(int* argc, char* argv[]) {
         } else if (strcasecmp(argv[i], "--i-am-cheating") == 0) {
             gI_am_cheating = 0xa11ee75d;
             handled = 1;
+        } else if (strcasecmp(argv[i], "--enable-diagnostics") == 0) {
+            harness_game_config.enable_diagnostics = 1;
+            handled = 1;
+        } else if (strstr(argv[i], "--volume-multiplier=") != NULL) {
+            char* s = strstr(argv[i], "=");
+            harness_game_config.volume_multiplier = atof(s + 1);
+            LOG_INFO("Volume multiplier set to %f", harness_game_config.volume_multiplier);
+            handled = 1;
+        } else if (strcasecmp(argv[i], "--full-screen") == 0) {
+            harness_game_config.start_full_screen = 1;
+            handled = 1;
+        } else if (strcasecmp(argv[i], "--enable-replay") == 0) {
+            harness_game_config.enable_replay = 1;
+            handled = 1;
         }
 
         if (handled) {
@@ -286,16 +309,24 @@ int Harness_ProcessCommandLine(int* argc, char* argv[]) {
     return 0;
 }
 
-void Harness_Hook_DOSGfxBegin() {
+void Harness_Hook_GraphicsInit(int render_width, int render_height) {
+    int window_width, window_height;
     if (force_nullrenderer) {
         return;
     }
-    renderer = Window_Create("Dethrace", 640, 400, 320, 200);
+    if (render_width == 320) {
+        window_width = render_width * 2;
+        window_height = render_height * 2;
+    } else {
+        window_width = render_width;
+        window_height = render_height;
+    }
+    renderer = Window_Create("Dethrace", window_width, window_height, render_width, render_height);
 }
 
 // Render 2d back buffer
 void Harness_RenderScreen(br_pixelmap* dst, br_pixelmap* src) {
-    renderer->FullScreenQuad((uint8_t*)src->pixels, 320, 200);
+    renderer->FullScreenQuad((uint8_t*)src->pixels);
 
     last_dst = dst;
     last_src = src;

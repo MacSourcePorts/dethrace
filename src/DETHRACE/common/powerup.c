@@ -318,7 +318,7 @@ void LoadPowerups() {
     PathCat(the_path, gApplication_path, "POWERUP.TXT");
     f = DRfopen(the_path, "rt");
     if (f == NULL) {
-        FatalError(25);
+        FatalError(kFatalError_LoadResolutionIndependentFile);
     }
     gNumber_of_powerups = GetAnInt(f);
     gPowerup_array = BrMemAllocate(sizeof(tPowerup) * gNumber_of_powerups, kMem_powerup_array);
@@ -356,12 +356,12 @@ void LoadPowerups() {
             the_powerup->got_proc = NULL;
         }
         the_powerup->number_of_float_params = GetAnInt(f);
-        the_powerup->float_params = BrMemAllocate(4 * the_powerup->number_of_float_params, kMem_powerup_float_parms);
+        the_powerup->float_params = BrMemAllocate(sizeof(float) * the_powerup->number_of_float_params, kMem_powerup_float_parms);
         for (j = 0; j < the_powerup->number_of_float_params; j++) {
             the_powerup->float_params[j] = GetAFloat(f);
         }
         the_powerup->number_of_integer_params = GetAnInt(f);
-        the_powerup->integer_params = BrMemAllocate(4 * the_powerup->number_of_integer_params, kMem_powerup_int_parms);
+        the_powerup->integer_params = BrMemAllocate(sizeof(int) * the_powerup->number_of_integer_params, kMem_powerup_int_parms);
         for (j = 0; j < the_powerup->number_of_integer_params; j++) {
             the_powerup->integer_params[j] = GetAnInt(f);
         }
@@ -487,13 +487,13 @@ void GotPowerupN(int pN) {
     LOG_TRACE("(%d)", pN);
 
     modifiers = 0;
-    if (PDKeyDown(0) != 0) {
+    if (PDKeyDown(KEY_SHIFT_ANY) != 0) {
         modifiers += 10;
     }
-    if (PDKeyDown(1) != 0) {
+    if (PDKeyDown(KEY_ALT_ANY) != 0) {
         modifiers += 20;
     }
-    if (PDKeyDown(2) != 0) {
+    if (PDKeyDown(KEY_CTRL_ANY) != 0) {
         modifiers += 40;
     }
     GotPowerup(&gProgram_state.current_car, modifiers + pN);
@@ -578,7 +578,7 @@ int GotCredits(tPowerup* pPowerup, tCar_spec* pCar) {
     if (pCar->driver == eDriver_local_human) {
         strcpy(s, pPowerup->message);
         strcat(s, " ");
-        EarnCredits2((IRandomBetween(pPowerup->integer_params[0], pPowerup->integer_params[1] / 100) * 100), s);
+        EarnCredits2((IRandomBetween(pPowerup->integer_params[0], pPowerup->integer_params[1]) / 100) * 100, s);
     }
     return GET_POWERUP_INDEX(pPowerup);
 }

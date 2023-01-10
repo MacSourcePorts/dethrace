@@ -498,6 +498,9 @@ void DoHeadups(tU32 pThe_time) {
                                     (((1500 - time_factor) * the_headup->data.fancy_info.shear_amount / 500) << 16)
                                         / the_headup->data.image_info.image->height);
                             } else {
+#if DETHRACE_FIX_BUGS
+                                time_factor = MAX(time_factor, 0);
+#endif
                                 DRPixelmapRectangleShearedCopy(
                                     gBack_screen,
                                     the_headup->x - the_headup->data.fancy_info.shear_amount * (time_factor - 500) / 500,
@@ -615,7 +618,6 @@ int FindAHeadupHoleWoofBarkSoundsABitRude(int pSlot_index) {
         }
         if (the_headup->type == eHeadup_unused) {
             empty_one = i;
-            break;
         }
     }
     return empty_one;
@@ -746,7 +748,7 @@ int NewTextHeadupSlot2(int pSlot_index, int pFlash_rate, int pLifetime, int pFon
     LOG_TRACE("(%d, %d, %d, %d, \"%s\", %d)", pSlot_index, pFlash_rate, pLifetime, pFont_index, pText, pQueue_it);
 
     time = PDGetTotalTime();
-    if (pQueue_it && pSlot_index == 4 && (unsigned int)(time - gLast_centre_headup) < 1000) {
+    if (pQueue_it && pSlot_index == 4 && time - gLast_centre_headup < 1000) {
         if (gQueued_headup_count == 4) {
             KillOldestQueuedHeadup();
         }
@@ -988,11 +990,11 @@ void DoDamageScreen(tU32 pThe_time) {
         if (gProgram_state.which_view != eView_forward) {
             return;
         }
-        the_wobble_y = gScreen_wobble_x;
-        the_wobble_x = gScreen_wobble_y;
+        the_wobble_x = gScreen_wobble_x;
+        the_wobble_y = gScreen_wobble_y;
     } else {
-        the_wobble_y = gProgram_state.current_car.damage_x_offset;
-        the_wobble_x = gProgram_state.current_car.damage_y_offset;
+        the_wobble_x = gProgram_state.current_car.damage_x_offset;
+        the_wobble_y = gProgram_state.current_car.damage_y_offset;
         if (gProgram_state.current_car.damage_background) {
             DRPixelmapRectangleMaskedCopy(
                 gBack_screen,
@@ -1007,17 +1009,17 @@ void DoDamageScreen(tU32 pThe_time) {
     }
     for (i = 0; i < COUNT_OF(gProgram_state.current_car.damage_units); i++) {
         the_damage = &gProgram_state.current_car.damage_units[i];
-        if (i != 2) {
+        if (i != eDamage_driver) {
             the_image = the_damage->images;
             the_step = 5 * the_damage->damage_level / 100;
             y_pitch = (the_image->height / 2) / 5;
             DRPixelmapRectangleMaskedCopy(
                 gBack_screen,
-                the_wobble_y + gProgram_state.current_car.damage_units[i].x_coord,
-                the_wobble_x + gProgram_state.current_car.damage_units[i].y_coord,
+                the_wobble_x + gProgram_state.current_car.damage_units[i].x_coord,
+                the_wobble_y + gProgram_state.current_car.damage_units[i].y_coord,
                 the_image,
                 0,
-                y_pitch * (2 * (5 * the_damage->damage_level / 100) + ((pThe_time / the_damage->periods[5 * the_damage->damage_level / 100]) & 1)),
+                y_pitch * (2 * the_step + ((pThe_time / the_damage->periods[5 * the_damage->damage_level / 100]) & 1)),
                 the_image->width,
                 y_pitch);
         }
@@ -1054,6 +1056,7 @@ void DoInstruments(tU32 pThe_time) {
     int the_wobble_x;
     int the_wobble_y;
     int gear;
+    int gear_height; /* Added by dethrace. */
     double the_angle;
     double the_angle2;
     double sin_angle;
@@ -1157,15 +1160,29 @@ void DoInstruments(tU32 pThe_time) {
             } else {
                 gear = gCar_to_view->gear;
             }
+#if defined(DETHRACE_FIX_BUGS)
+/*
+ * The OG derives gear mask height of 16 or 28 by `gears_image->height / 8`, but
+ * this is only valid for HGEARS.PIX, which contains 8 gear images. Hardcoding
+ * this number fixes gear rendering for cars using HGEARS4.PIX, which consists
+ * of 11 gear images.
+ */
+#define GEAR_HEIGHT 16
+#define GEAR_HEIGHT_HIRES 28
+#else
+#define GEAR_HEIGHT ((int)gProgram_state.current_car.gears_image->height / 8)
+#define GEAR_HEIGHT_HIRES GEAR_HEIGHT
+#endif
+	    gear_height = gGraf_spec_index ? GEAR_HEIGHT_HIRES : GEAR_HEIGHT;
             DRPixelmapRectangleMaskedCopy(
                 gBack_screen,
                 the_wobble_x + gProgram_state.current_car.gear_x[gProgram_state.cockpit_on],
                 the_wobble_y + gProgram_state.current_car.gear_y[gProgram_state.cockpit_on],
                 gProgram_state.current_car.gears_image,
                 0,
-                (gear + 1) * ((int)gProgram_state.current_car.gears_image->height >> 3),
+                (gear + 1) * gear_height,
                 gProgram_state.current_car.gears_image->width,
-                (int)gProgram_state.current_car.gears_image->height >> 3);
+                gear_height);
         }
         speedo_image = gProgram_state.current_car.speedo_image[gProgram_state.cockpit_on];
         if (gProgram_state.current_car.speedo_radius_2[gProgram_state.cockpit_on] >= 0) {
@@ -1368,12 +1385,11 @@ void EarnCredits2(int pAmount, char* pPrefix_text) {
     if (pAmount == 0) {
         return;
     }
-    if (gNet_mode != eNet_mode_none && (gProgram_state.credits_earned - gProgram_state.credits_lost + pAmount) < 0) {
-        // Should this also substract pAmount?
+    if (gNet_mode != eNet_mode_none && gProgram_state.credits_earned - gProgram_state.credits_lost + pAmount < 0) {
         pAmount = gProgram_state.credits_lost - gProgram_state.credits_lost;
     }
     original_amount = pAmount;
-    if (gLast_credit_headup__displays >= 0 && (the_time - gLast_earn_time) < 2000) {
+    if (gLast_credit_headup__displays >= 0 && the_time - gLast_earn_time < 2000) {
         pAmount += gLast_credit_amount;
     }
     gLast_credit_amount = pAmount;
@@ -1384,7 +1400,7 @@ void EarnCredits2(int pAmount, char* pPrefix_text) {
         sprintf(s, "%s1 %s", pPrefix_text, GetMiscString(13));
         gProgram_state.credits_earned += original_amount;
     } else if (pAmount >= -1) {
-        sprintf(s, "%s%s 1 %s", pPrefix_text, GetMiscString(14), GetMiscString(15));
+        sprintf(s, "%s%s 1 %s", pPrefix_text, GetMiscString(14), GetMiscString(13));
         gProgram_state.credits_lost -= original_amount;
     } else {
         sprintf(s, "%s%s %d %s", GetMiscString(14), pPrefix_text, -pAmount, GetMiscString(12));
@@ -1437,9 +1453,9 @@ void AwardTime(tU32 pTime) {
     }
     gOld_times[0] = pTime;
     if (gLast_time_credit_headup >= 0 && (the_time - gLast_time_earn_time) < 2000) {
-        pTime += gLast_time_credit_headup;
+        pTime += gLast_time_credit_amount;
     }
-    gLast_time_credit_headup = pTime;
+    gLast_time_credit_amount = pTime;
     gTimer += original_amount * 1000;
     s[0] = '+';
     TimerString(1000 * pTime, &s[1], 0, 0);

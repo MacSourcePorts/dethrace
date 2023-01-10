@@ -2,7 +2,10 @@
 #include "brender/brender.h"
 #include "harness.h"
 #include "harness/trace.h"
-#include "shaders.h"
+#include "resources/3d_frag.glsl.h"
+#include "resources/3d_vert.glsl.h"
+#include "resources/framebuffer_frag.glsl.h"
+#include "resources/framebuffer_vert.glsl.h"
 #include "stored_context.h"
 
 #include <glad/glad.h>
@@ -28,8 +31,10 @@ static int vp_x, vp_y, vp_width, vp_height;
 static br_pixelmap* last_shade_table = NULL;
 static int dirty_buffers = 0;
 
+tStored_material* current_material;
+
 struct {
-    GLuint pixels, pixels_transform;
+    GLuint pixels, uv_transform;
     GLuint shade_table;
     GLuint model, view, projection;
     GLuint palette_index_override;
@@ -46,92 +51,84 @@ struct {
     GLuint pixels, palette;
 } uniforms_2dpp;
 
-GLuint CreateShaderFromFile(const char* filename, const char* fallback, GLenum type) {
+GLuint CreateShaderProgram(char* name, const char* vertex_shader, const int vertex_shader_len, const char* fragment_shader, const int fragment_shader_len) {
     int success;
-
-    GLuint res = glCreateShader(type);
-
-    FILE* f = fopen(filename, "r");
-    if (f) {
-        fseek(f, 0, SEEK_END);
-        long fsize = ftell(f);
-        fseek(f, 0, SEEK_SET);
-        char* file_bytes = malloc(fsize + 1);
-        fsize = fread(file_bytes, fsize, 1, f);
-        fclose(f);
-        file_bytes[fsize] = 0;
-        const GLchar* sources[] = { file_bytes };
-        glShaderSource(res, 1, sources, NULL);
-    } else {
-        const GLchar* sources[] = { fallback };
-        glShaderSource(res, 1, sources, NULL);
-    }
-
-    glCompileShader(res);
-    glGetShaderiv(res, GL_COMPILE_STATUS, &success);
-    if (!success) {
-        char log_buffer[1024];
-        glGetShaderInfoLog(res, 1024, NULL, log_buffer);
-        LOG_PANIC("shader %s failed to compile: %s", filename, log_buffer);
-    }
-    return res;
-}
-
-GLuint CreateShaderProgram(const char* vertex_file, const char* fragment_file, const char* vertex_fallback, const char* fragment_fallback) {
-    GLuint program = glCreateProgram();
+    char log_buffer[1024];
+    GLuint program;
     GLuint v_shader, f_shader;
 
-    v_shader = CreateShaderFromFile(vertex_file, vertex_fallback, GL_VERTEX_SHADER);
-    if (!v_shader)
-        return 0;
+    program = glCreateProgram();
+    v_shader = glCreateShader(GL_VERTEX_SHADER);
+    const GLchar* vertex_sources[] = { vertex_shader };
+    glShaderSource(v_shader, 1, vertex_sources, &vertex_shader_len);
+    glCompileShader(v_shader);
+    glGetShaderiv(v_shader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        glGetShaderInfoLog(v_shader, 1024, NULL, log_buffer);
+        LOG_PANIC("shader %s failed to compile: %s", name, log_buffer);
+    }
+
+    f_shader = glCreateShader(GL_FRAGMENT_SHADER);
+    const GLchar* fragment_sources[] = { fragment_shader };
+    glShaderSource(f_shader, 1, fragment_sources, &fragment_shader_len);
+    glCompileShader(f_shader);
+    glGetShaderiv(f_shader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        char log_buffer[1024];
+        glGetShaderInfoLog(f_shader, 1024, NULL, log_buffer);
+        LOG_PANIC("shader %s failed to compile: %s", name, log_buffer);
+    }
+
     glAttachShader(program, v_shader);
-
-    f_shader = CreateShaderFromFile(fragment_file, fragment_fallback, GL_FRAGMENT_SHADER);
-    if (!f_shader)
-        return 0;
     glAttachShader(program, f_shader);
-
     glLinkProgram(program);
-
     glDeleteShader(v_shader);
     glDeleteShader(f_shader);
 
     GLint link_ok = GL_FALSE;
     glGetProgramiv(program, GL_LINK_STATUS, &link_ok);
     if (!link_ok) {
-        char log_buffer[1024];
         glGetShaderInfoLog(program, 1024, NULL, log_buffer);
-        LOG_PANIC("shader program %s:%s failed to link: %s", vertex_file, fragment_file, log_buffer);
+        LOG_PANIC("shader program %s failed to link: %s", name, log_buffer);
     }
     return program;
 }
 
+GLint GetValidatedUniformLocation(GLuint program, char* uniform_name) {
+    GLint location;
+    location = glGetUniformLocation(program, uniform_name);
+    if (location == -1) {
+        LOG_PANIC("glGetUniformLocation(%d, %s) failed. Check the shader uniform names.", program, uniform_name);
+    }
+    return location;
+}
+
 void LoadShaders() {
-    shader_program_2d = CreateShaderProgram("vertex_shader_2d.glsl", "fragment_shader_2d.glsl", vs_2d, fs_2d);
+    shader_program_2d = CreateShaderProgram("framebuffer", RESOURCES_FRAMEBUFFER_VERT_GLSL, sizeof(RESOURCES_FRAMEBUFFER_VERT_GLSL), RESOURCES_FRAMEBUFFER_FRAG_GLSL, sizeof(RESOURCES_FRAMEBUFFER_FRAG_GLSL));
     glUseProgram(shader_program_2d);
-    uniforms_2d.pixels = glGetUniformLocation(shader_program_2d, "pixels");
-    uniforms_2d.palette = glGetUniformLocation(shader_program_2d, "palette");
+    uniforms_2d.pixels = GetValidatedUniformLocation(shader_program_2d, "u_pixels");
+    uniforms_2d.palette = GetValidatedUniformLocation(shader_program_2d, "u_palette");
 
     // bind the uniform samplers to texture units:
     glUniform1i(uniforms_2d.pixels, 0);
     glUniform1i(uniforms_2d.palette, 1);
 
-    shader_program_3d = CreateShaderProgram("vertex_shader_3d.glsl", "fragment_shader_3d.glsl", vs_3d, fs_3d);
+    shader_program_3d = CreateShaderProgram("3d", RESOURCES_3D_VERT_GLSL, sizeof(RESOURCES_3D_VERT_GLSL), RESOURCES_3D_FRAG_GLSL, sizeof(RESOURCES_3D_FRAG_GLSL));
     glUseProgram(shader_program_3d);
-    uniforms_3d.clip_plane_count = glGetUniformLocation(shader_program_3d, "clip_plane_count");
+    uniforms_3d.clip_plane_count = GetValidatedUniformLocation(shader_program_3d, "u_clip_plane_count");
     for (int i = 0; i < 6; i++) {
         char name[32];
-        sprintf(name, "clip_planes[%d]", i);
-        uniforms_3d.clip_planes[i] = glGetUniformLocation(shader_program_3d, name);
+        sprintf(name, "u_clip_planes[%d]", i);
+        uniforms_3d.clip_planes[i] = GetValidatedUniformLocation(shader_program_3d, name);
     }
-    uniforms_3d.model = glGetUniformLocation(shader_program_3d, "model");
-    uniforms_3d.pixels = glGetUniformLocation(shader_program_3d, "pixels");
-    uniforms_3d.pixels_transform = glGetUniformLocation(shader_program_3d, "pixels_transform");
-    uniforms_3d.shade_table = glGetUniformLocation(shader_program_3d, "shade_table");
-    uniforms_3d.projection = glGetUniformLocation(shader_program_3d, "projection");
-    uniforms_3d.palette_index_override = glGetUniformLocation(shader_program_3d, "palette_index_override");
-    uniforms_3d.view = glGetUniformLocation(shader_program_3d, "view");
-    uniforms_3d.light_value = glGetUniformLocation(shader_program_3d, "light_value");
+    uniforms_3d.model = GetValidatedUniformLocation(shader_program_3d, "u_model");
+    uniforms_3d.pixels = GetValidatedUniformLocation(shader_program_3d, "u_pixels");
+    uniforms_3d.uv_transform = GetValidatedUniformLocation(shader_program_3d, "u_texture_coords_transform");
+    uniforms_3d.shade_table = GetValidatedUniformLocation(shader_program_3d, "u_shade_table");
+    uniforms_3d.projection = GetValidatedUniformLocation(shader_program_3d, "u_projection");
+    uniforms_3d.palette_index_override = GetValidatedUniformLocation(shader_program_3d, "u_palette_index_override");
+    uniforms_3d.view = GetValidatedUniformLocation(shader_program_3d, "u_view");
+    uniforms_3d.light_value = GetValidatedUniformLocation(shader_program_3d, "u_light_value");
 
     // bind the uniform samplers to texture units. palette=1, shadetable=2
     glUniform1i(uniforms_3d.pixels, 0);
@@ -201,6 +198,11 @@ void GLRenderer_Init(int width, int height, int pRender_width, int pRender_heigh
     render_height = pRender_height;
     update_viewport();
 
+    LOG_INFO("OpenGL vendor string: %s", glGetString(GL_VENDOR));
+    LOG_INFO("OpenGL renderer string: %s", glGetString(GL_RENDERER));
+    LOG_INFO("OpenGL version string: %s", glGetString(GL_VERSION));
+    LOG_INFO("OpenGL shading language version string: %s", glGetString(GL_SHADING_LANGUAGE_VERSION));
+
     int maxTextureImageUnits;
     glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &maxTextureImageUnits);
     if (maxTextureImageUnits < 3) {
@@ -210,13 +212,13 @@ void GLRenderer_Init(int width, int height, int pRender_width, int pRender_heigh
     LoadShaders();
     SetupFullScreenRectGeometry();
 
-    // opengl config
+    // config
     glDisable(GL_BLEND);
-    // glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDepthFunc(GL_LESS);
     glClearColor(0, 0, 0, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
-    glDisable(GL_CULL_FACE);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
 
     // textures
     glGenTextures(1, &screen_texture);
@@ -355,7 +357,7 @@ void GLRenderer_EndScene() {
     CHECK_GL_ERROR("GLRenderer_RenderFullScreenQuad");
 }
 
-void GLRenderer_FullScreenQuad(uint8_t* screen_buffer, int width, int height) {
+void GLRenderer_FullScreenQuad(uint8_t* screen_buffer) {
     glViewport(vp_x, vp_y, vp_width, vp_height);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glDisable(GL_DEPTH_TEST);
@@ -365,7 +367,7 @@ void GLRenderer_FullScreenQuad(uint8_t* screen_buffer, int width, int height) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8UI, width, height, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, screen_buffer);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8UI, render_width, render_height, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, screen_buffer);
     glBindVertexArray(screen_buffer_vao);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, screen_buffer_ebo);
     glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
@@ -481,13 +483,12 @@ void GLRenderer_BufferModel(br_model* model) {
     CHECK_GL_ERROR("after build model");
 }
 
-tStored_material* current_material;
 void setActiveMaterial(tStored_material* material) {
     if (material == NULL || material == current_material) {
         return;
     }
 
-    glUniform3fv(uniforms_3d.pixels_transform, 2, material->map_transform->v);
+    glUniformMatrix2x3fv(uniforms_3d.uv_transform, 1, GL_TRUE, &material->map_transform.m[0][0]);
     glUniform1i(uniforms_3d.palette_index_override, material->index_base);
     if (material->shade_table) {
         GLRenderer_SetShadeTable(material->shade_table);
@@ -498,6 +499,12 @@ void setActiveMaterial(tStored_material* material) {
         glUniform1i(uniforms_3d.light_value, 0);
     } else {
         glUniform1i(uniforms_3d.light_value, -1);
+    }
+
+    if (material->flags & (BR_MATF_TWO_SIDED | BR_MATF_ALWAYS_VISIBLE)) {
+        glDisable(GL_CULL_FACE);
+    } else {
+        glEnable(GL_CULL_FACE);
     }
 
     if (material->pixelmap) {
@@ -573,12 +580,7 @@ void GLRenderer_BufferMaterial(br_material* mat) {
             strcpy(stored->identifier, mat->identifier);
         }
     }
-    stored->map_transform[0].v[0] = mat->map_transform.m[0][0];
-    stored->map_transform[0].v[1] = mat->map_transform.m[0][1];
-    stored->map_transform[0].v[2] = mat->map_transform.m[2][0];
-    stored->map_transform[1].v[0] = mat->map_transform.m[1][0];
-    stored->map_transform[1].v[1] = mat->map_transform.m[1][1];
-    stored->map_transform[1].v[2] = mat->map_transform.m[2][1];
+    BrMatrix23Copy(&stored->map_transform, &mat->map_transform);
     stored->pixelmap = mat->colour_map;
     stored->flags = mat->flags;
     stored->shade_table = mat->index_shade;
@@ -671,7 +673,7 @@ void GLRenderer_SetWindowSize(int width, int height) {
     update_viewport();
 }
 
-void GLRenderer_GetViewport(int* x, int* y, int* width, int* height)  {
+void GLRenderer_GetViewport(int* x, int* y, int* width, int* height) {
     *x = vp_x;
     *y = vp_y;
     *width = vp_width;

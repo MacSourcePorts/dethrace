@@ -61,12 +61,12 @@ void FrankAnneStart1() {
     StartRollingPlayerNamesIn();
     if (!gFrank_flic_data) {
         if (!LoadFlicData("FRANK.FLI", &gFrank_flic_data, &gFrank_flic_data_length)) {
-            FatalError(56);
+            FatalError(kFatalError_LoadOpponentMugShotFile);
         }
     }
     if (!gAnne_flic_data) {
         if (!LoadFlicData("ANNIE.FLI", &gAnne_flic_data, &gAnne_flic_data_length)) {
-            FatalError(56);
+            FatalError(kFatalError_LoadOpponentMugShotFile);
         }
     }
     InitialiseFlicPanel(0,
@@ -331,7 +331,7 @@ int DoOnePlayerStart() {
                 memcpy(&gProgram_state, &saved_state, sizeof(tProgram_state));
                 return 0;
             }
-            if ((harness_game_info.mode == eGame_carmageddon_demo || harness_game_info.mode == eGame_splatpack_demo) && gProgram_state.frank_or_anniness != eFrankie) {
+            if ((harness_game_info.mode == eGame_carmageddon_demo || harness_game_info.mode == eGame_splatpack_demo || harness_game_info.mode == eGame_splatpack_xmas_demo) && gProgram_state.frank_or_anniness != eFrankie) {
                 DoFeatureUnavailableInDemo();
                 memset(&gProgram_state, 0, sizeof(gProgram_state));
                 return 0;
@@ -851,7 +851,7 @@ int DoMultiPlayerStart() {
     int car_index;
     LOG_TRACE("()");
 
-    if (harness_game_info.mode == eGame_carmageddon_demo || harness_game_info.mode == eGame_splatpack_demo) {
+    if (harness_game_info.mode == eGame_carmageddon_demo || harness_game_info.mode == eGame_splatpack_demo || harness_game_info.mode == eGame_splatpack_xmas_demo) {
         SuspendPendingFlic();
         DoFeatureUnavailableInDemo();
         return 0;
